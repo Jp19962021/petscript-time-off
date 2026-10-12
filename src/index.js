@@ -182,14 +182,21 @@ function render(){
     ? todayRows.map(r=>"<div><b>"+r.employee_name+"</b> — "+r.request_type+"</div>").join("")
     : "No one off today.";
 
-  requestRows.innerHTML=data.requests.map(r=>`
-    <tr>
-      <td><b>${r.employee_name}</b><div class="muted">${r.department||""}</div></td>
-      <td>${r.start_date} → ${r.end_date}</td>
-      <td>${r.request_type}</td>
-      <td>${r.status}</td>
-    </tr>`).join("");
+  requestRows.innerHTML=data.requests.map(function(r){
+    return "<tr>" +
+      "<td><b>" + escapeHtml(r.employee_name) + "</b><div class=\"muted\">" + escapeHtml(r.department || "") + "</div></td>" +
+      "<td>" + escapeHtml(r.start_date) + " → " + escapeHtml(r.end_date) + "</td>" +
+      "<td>" + escapeHtml(r.request_type) + "</td>" +
+      "<td>" + escapeHtml(r.status) + "</td>" +
+      "</tr>";
+  }).join("");
 }
+function escapeHtml(value){
+  return String(value == null ? "" : value).replace(/[&<>"']/g,function(ch){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[ch];
+  });
+}
+
 async function addEmployee(){
   await api("/api/employees",{method:"POST",body:JSON.stringify({
     name:empName.value,department:empDept.value
