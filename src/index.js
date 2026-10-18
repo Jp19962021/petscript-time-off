@@ -5169,7 +5169,7 @@ function exportUploadLog() {
 
         }
       )
-      .join("\n");
+      .join("\\n");
 
   var blob =
     new Blob(
