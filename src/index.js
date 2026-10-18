@@ -5042,18 +5042,7 @@ function downloadSavedRecord(id) {
 
   ];
 
-  var blob =
-    new Blob(
-      [
-        lines.join(
-          "\n"
-        )
-      ],
-      {
-        type:
-          "text/plain;charset=utf-8"
-      }
-    );
+ var blob = new Blob([lines.join("\\n")], { type: "text/plain;charset=utf-8" });
 
   var link =
     document.createElement(
