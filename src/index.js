@@ -2,7 +2,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Let GitHub -> Cloudflare deploy successfully before D1 is connected.
     if (!env.DB) {
       return new Response(SETUP_HTML, {
         headers: {
@@ -19,11 +18,27 @@ export default {
         return getData(env);
       }
 
+      if (url.pathname === "/api/team-calendar" && request.method === "GET") {
+        return getTeamCalendar(env);
+      }
+
+      if (url.pathname === "/team-calendar" && request.method === "GET") {
+        return new Response(TEAM_CALENDAR_HTML, {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store"
+          }
+        });
+      }
+
       if (url.pathname === "/api/employees" && request.method === "POST") {
         return addEmployee(request, env);
       }
 
-      if (url.pathname.startsWith("/api/employees/") && request.method === "DELETE") {
+      if (
+        url.pathname.startsWith("/api/employees/") &&
+        request.method === "DELETE"
+      ) {
         return removeEmployee(url.pathname, env);
       }
 
@@ -31,20 +46,32 @@ export default {
         return addRequest(request, env);
       }
 
-      if (url.pathname.startsWith("/api/requests/") && request.method === "PUT") {
+      if (
+        url.pathname.startsWith("/api/requests/") &&
+        request.method === "PUT"
+      ) {
         return updateRequest(url.pathname, request, env);
       }
 
-      if (url.pathname.startsWith("/api/requests/") && request.method === "DELETE") {
+      if (
+        url.pathname.startsWith("/api/requests/") &&
+        request.method === "DELETE"
+      ) {
         return removeRequest(url.pathname, env);
       }
 
-      if (url.pathname === "/api/read-sheet" && request.method === "POST") {
+      if (
+        url.pathname === "/api/read-sheet" &&
+        request.method === "POST"
+      ) {
         return readSheet(request, env);
       }
 
       if (url.pathname === "/health") {
-        return json({ ok: true, db: true });
+        return json({
+          ok: true,
+          db: true
+        });
       }
 
       return new Response(APP_HTML, {
@@ -55,6 +82,7 @@ export default {
       });
     } catch (err) {
       console.error(err);
+
       return json(
         {
           error:
@@ -141,18 +169,43 @@ function validDate(value) {
 
 async function getData(env) {
   const results = await Promise.all([
-    env.DB.prepare(
-      "SELECT * FROM employees WHERE active=1 ORDER BY name COLLATE NOCASE"
-    ).all(),
+    env.DB
+      .prepare(
+        "SELECT * FROM employees WHERE active=1 ORDER BY name COLLATE NOCASE"
+      )
+      .all(),
 
-    env.DB.prepare(
-      "SELECT * FROM time_off_requests ORDER BY start_date ASC, employee_name COLLATE NOCASE"
-    ).all()
+    env.DB
+      .prepare(
+        "SELECT * FROM time_off_requests ORDER BY start_date ASC, employee_name COLLATE NOCASE"
+      )
+      .all()
   ]);
 
   return json({
     employees: results[0].results || [],
     requests: results[1].results || []
+  });
+}
+
+async function getTeamCalendar(env) {
+  const result = await env.DB
+    .prepare(`
+      SELECT
+        id,
+        employee_name,
+        department,
+        start_date,
+        end_date,
+        request_type
+      FROM time_off_requests
+      WHERE status='Approved'
+      ORDER BY start_date ASC, employee_name COLLATE NOCASE
+    `)
+    .all();
+
+  return json({
+    requests: result.results || []
   });
 }
 
@@ -171,9 +224,10 @@ async function addEmployee(request, env) {
     );
   }
 
-  await env.DB.prepare(
-    "INSERT INTO employees(name,department,active) VALUES(?,?,1)"
-  )
+  await env.DB
+    .prepare(
+      "INSERT INTO employees(name,department,active) VALUES(?,?,1)"
+    )
     .bind(name, department)
     .run();
 
@@ -185,9 +239,10 @@ async function addEmployee(request, env) {
 async function removeEmployee(pathname, env) {
   const id = getId(pathname);
 
-  await env.DB.prepare(
-    "UPDATE employees SET active=0 WHERE id=?"
-  )
+  await env.DB
+    .prepare(
+      "UPDATE employees SET active=0 WHERE id=?"
+    )
     .bind(id)
     .run();
 
@@ -241,22 +296,25 @@ function normalizeRequest(body) {
 
 async function addRequest(request, env) {
   try {
-    const b = normalizeRequest(await request.json());
+    const b = normalizeRequest(
+      await request.json()
+    );
 
-    await env.DB.prepare(`
-      INSERT INTO time_off_requests(
-        employee_id,
-        employee_name,
-        department,
-        start_date,
-        end_date,
-        request_type,
-        status,
-        notes,
-        source_filename
-      )
-      VALUES(?,?,?,?,?,?,?,?,?)
-    `)
+    await env.DB
+      .prepare(`
+        INSERT INTO time_off_requests(
+          employee_id,
+          employee_name,
+          department,
+          start_date,
+          end_date,
+          request_type,
+          status,
+          notes,
+          source_filename
+        )
+        VALUES(?,?,?,?,?,?,?,?,?)
+      `)
       .bind(
         b.employeeId,
         b.employeeName,
@@ -286,23 +344,27 @@ async function addRequest(request, env) {
 async function updateRequest(pathname, request, env) {
   try {
     const id = getId(pathname);
-    const b = normalizeRequest(await request.json());
 
-    await env.DB.prepare(`
-      UPDATE time_off_requests
-      SET
-        employee_id=?,
-        employee_name=?,
-        department=?,
-        start_date=?,
-        end_date=?,
-        request_type=?,
-        status=?,
-        notes=?,
-        source_filename=?,
-        updated_at=CURRENT_TIMESTAMP
-      WHERE id=?
-    `)
+    const b = normalizeRequest(
+      await request.json()
+    );
+
+    await env.DB
+      .prepare(`
+        UPDATE time_off_requests
+        SET
+          employee_id=?,
+          employee_name=?,
+          department=?,
+          start_date=?,
+          end_date=?,
+          request_type=?,
+          status=?,
+          notes=?,
+          source_filename=?,
+          updated_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `)
       .bind(
         b.employeeId,
         b.employeeName,
@@ -333,9 +395,10 @@ async function updateRequest(pathname, request, env) {
 async function removeRequest(pathname, env) {
   const id = getId(pathname);
 
-  await env.DB.prepare(
-    "DELETE FROM time_off_requests WHERE id=?"
-  )
+  await env.DB
+    .prepare(
+      "DELETE FROM time_off_requests WHERE id=?"
+    )
     .bind(id)
     .run();
 
@@ -394,7 +457,10 @@ async function readSheet(request, env) {
 
   const upload = new FormData();
 
-  upload.append("purpose", "user_data");
+  upload.append(
+    "purpose",
+    "user_data"
+  );
 
   upload.append(
     "file",
@@ -419,14 +485,10 @@ async function readSheet(request, env) {
     }
   );
 
-  const uploadData = await uploadResp.json();
+  const uploadData =
+    await uploadResp.json();
 
   if (!uploadResp.ok || !uploadData.id) {
-    console.error(
-      "OpenAI upload error",
-      uploadData
-    );
-
     return json(
       {
         error:
@@ -434,46 +496,25 @@ async function readSheet(request, env) {
           uploadData.error &&
           uploadData.error.message
             ? uploadData.error.message
-            : "Unable to upload the request sheet for AI reading."
+            : "Unable to upload the request sheet."
       },
       502
     );
   }
 
-  const fileId = uploadData.id;
+  const fileId =
+    uploadData.id;
 
   try {
-    const today = new Date()
-      .toISOString()
-      .slice(0, 10);
+    const today =
+      new Date()
+        .toISOString()
+        .slice(0, 10);
 
     const prompt =
       "Read this employee time-off request form. Today is " +
       today +
-      ".\n\n" +
-
-      "Return ONLY valid JSON with exactly these keys:\n" +
-
-      "{\n" +
-      '  "employee_name": "",\n' +
-      '  "department": "",\n' +
-      '  "start_date": "YYYY-MM-DD",\n' +
-      '  "end_date": "YYYY-MM-DD",\n' +
-      '  "request_type": "PTO",\n' +
-      '  "status": "Approved",\n' +
-      '  "notes": "",\n' +
-      '  "confidence": "High"\n' +
-      "}\n\n" +
-
-      "Rules:\n" +
-      "- Never invent the employee name or dates.\n" +
-      "- If only one day is requested, start_date and end_date should be the same.\n" +
-      "- If a year is omitted, infer the most reasonable year from today's date and form context.\n" +
-      "- request_type should be PTO, Vacation, Sick, Personal, Unpaid, Bereavement, Time Off, or another short label visible on the form.\n" +
-      "- status must be Approved, Pending, or Denied. If approval cannot be determined, use Pending.\n" +
-      "- Put partial-day hours, handwritten comments, signature/approval details, or uncertainty in notes.\n" +
-      "- confidence must be High, Medium, or Low.\n" +
-      "- Output JSON only. No markdown.";
+      ". Return ONLY valid JSON with keys employee_name, department, start_date, end_date, request_type, status, notes, confidence. Dates must be YYYY-MM-DD. Never invent names or dates. If approval is unclear use Pending.";
 
     const aiResp = await fetch(
       "https://api.openai.com/v1/responses",
@@ -481,7 +522,8 @@ async function readSheet(request, env) {
         method: "POST",
         headers: {
           Authorization:
-            "Bearer " + env.OPENAI_API_KEY,
+            "Bearer " +
+            env.OPENAI_API_KEY,
 
           "Content-Type":
             "application/json"
@@ -497,22 +539,14 @@ async function readSheet(request, env) {
           input: [
             {
               role: "user",
-
               content: [
                 {
-                  type:
-                    "input_text",
-
-                  text:
-                    prompt
+                  type: "input_text",
+                  text: prompt
                 },
-
                 {
-                  type:
-                    "input_file",
-
-                  file_id:
-                    fileId
+                  type: "input_file",
+                  file_id: fileId
                 }
               ]
             }
@@ -525,11 +559,6 @@ async function readSheet(request, env) {
       await aiResp.json();
 
     if (!aiResp.ok) {
-      console.error(
-        "OpenAI response error",
-        aiData
-      );
-
       return json(
         {
           error:
@@ -537,7 +566,7 @@ async function readSheet(request, env) {
             aiData.error &&
             aiData.error.message
               ? aiData.error.message
-              : "The AI could not read this request sheet."
+              : "The AI could not read the request sheet."
         },
         502
       );
@@ -545,18 +574,13 @@ async function readSheet(request, env) {
 
     let outputText = "";
 
-    for (
-      const item of aiData.output || []
-    ) {
-      for (
-        const part of item.content || []
-      ) {
+    for (const item of aiData.output || []) {
+      for (const part of item.content || []) {
         if (
           part.type === "output_text" &&
           part.text
         ) {
-          outputText +=
-            part.text;
+          outputText += part.text;
         }
       }
     }
@@ -564,53 +588,30 @@ async function readSheet(request, env) {
     outputText =
       outputText
         .trim()
-        .replace(
-          /^```json\s*/i,
-          ""
-        )
-        .replace(
-          /^```\s*/,
-          ""
-        )
-        .replace(
-          /\s*```$/,
-          ""
-        );
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/, "")
+        .replace(/\s*```$/, "");
 
     let extracted;
 
     try {
       extracted =
-        JSON.parse(
-          outputText
-        );
+        JSON.parse(outputText);
     } catch (err) {
-      console.error(
-        "Invalid AI JSON",
-        outputText
-      );
-
       return json(
         {
           error:
-            "The sheet was read, but the returned information could not be parsed. Try a clearer scan or photo."
+            "The sheet was read, but the returned information could not be parsed."
         },
         502
       );
     }
 
     extracted.source_filename =
-      clean(
-        file.name,
-        255
-      );
+      clean(file.name, 255);
 
     if (
-      ![
-        "Approved",
-        "Pending",
-        "Denied"
-      ].includes(
+      !["Approved", "Pending", "Denied"].includes(
         extracted.status
       )
     ) {
@@ -620,8 +621,7 @@ async function readSheet(request, env) {
 
     return json({
       ok: true,
-      extracted:
-        extracted
+      extracted
     });
   } finally {
     try {
@@ -629,9 +629,7 @@ async function readSheet(request, env) {
         "https://api.openai.com/v1/files/" +
           fileId,
         {
-          method:
-            "DELETE",
-
+          method: "DELETE",
           headers: {
             Authorization:
               "Bearer " +
@@ -639,12 +637,7 @@ async function readSheet(request, env) {
           }
         }
       );
-    } catch (err) {
-      console.error(
-        "Temporary file cleanup failed",
-        err
-      );
-    }
+    } catch {}
   }
 }
 
@@ -654,7 +647,6 @@ const SETUP_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PetScript Time Off Setup</title>
-
 <style>
 body{
   margin:0;
@@ -666,150 +658,433 @@ body{
   min-height:100vh;
   padding:20px
 }
-
 .card{
   max-width:680px;
   background:#fff;
   border:1px solid #e2e7ee;
   border-radius:18px;
-  padding:30px;
-  box-shadow:0 10px 35px rgba(13,33,56,.08)
+  padding:30px
 }
-
-h1{
-  margin:6px 0 12px
-}
-
-.eyebrow{
-  font-size:11px;
-  letter-spacing:.12em;
-  font-weight:800;
-  color:#347ed8
-}
-
-.step{
-  padding:14px 0;
-  border-top:1px solid #e6eaf0
-}
-
-.step strong{
-  display:block;
-  margin-bottom:4px
-}
-
-.step span{
-  color:#758195;
-  font-size:14px
-}
-
 .code{
   font-family:monospace;
   background:#edf3fa;
-  border-radius:7px;
   padding:3px 7px;
-  color:#17538e
+  border-radius:7px
 }
 </style>
 </head>
+<body>
+<div class="card">
+<h1>PetScript Time Off</h1>
+<p>GitHub deployment is working.</p>
+<p>Create a D1 database named <span class="code">petscript-timeoff</span>.</p>
+<p>Bind it to this Worker with the exact binding name <span class="code">DB</span>.</p>
+<p>Then reload this page.</p>
+</div>
+</body>
+</html>`;
 
+const TEAM_CALENDAR_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PetScript Team Time-Off Calendar</title>
+<style>
+:root{
+  --navy:#0d2138;
+  --blue:#347ed8;
+  --bg:#f5f7fb;
+  --text:#172033;
+  --muted:#788397;
+  --line:#e5e9f0
+}
+*{
+  box-sizing:border-box
+}
+body{
+  margin:0;
+  font-family:Arial,sans-serif;
+  background:var(--bg);
+  color:var(--text)
+}
+header{
+  background:var(--navy);
+  color:#fff;
+  padding:22px 28px
+}
+header h1{
+  margin:0;
+  font-size:23px
+}
+header p{
+  margin:5px 0 0;
+  font-size:12px;
+  opacity:.7
+}
+main{
+  max-width:1300px;
+  margin:0 auto;
+  padding:24px
+}
+.toolbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin-bottom:15px
+}
+.title{
+  font-size:20px;
+  font-weight:800
+}
+.nav{
+  display:flex;
+  gap:7px
+}
+button{
+  border:0;
+  border-radius:9px;
+  padding:9px 12px;
+  background:#e9eef5;
+  color:var(--text);
+  font-weight:700;
+  cursor:pointer
+}
+.calendarWrap{
+  overflow:auto
+}
+.calendar{
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  min-width:850px;
+  border-left:1px solid var(--line);
+  border-top:1px solid var(--line);
+  border-radius:13px;
+  overflow:hidden;
+  background:white
+}
+.dow{
+  padding:10px;
+  text-align:center;
+  font-size:11px;
+  font-weight:800;
+  color:var(--muted);
+  background:#f7f9fc;
+  border-right:1px solid var(--line);
+  border-bottom:1px solid var(--line)
+}
+.day{
+  min-height:125px;
+  padding:8px;
+  border-right:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+  background:#fff
+}
+.day.other{
+  background:#fafbfc;
+  color:#aeb6c1
+}
+.day.today{
+  box-shadow:inset 0 0 0 2px var(--blue)
+}
+.daynum{
+  font-size:12px;
+  font-weight:800;
+  margin-bottom:6px
+}
+.event{
+  font-size:10px;
+  font-weight:700;
+  background:#eaf2fd;
+  color:#245d9d;
+  border-radius:6px;
+  padding:5px 6px;
+  margin-top:4px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
+.legend{
+  margin-top:14px;
+  font-size:12px;
+  color:var(--muted)
+}
+@media(max-width:700px){
+  header{
+    padding:18px
+  }
+  main{
+    padding:14px
+  }
+  .toolbar{
+    align-items:flex-start;
+    flex-direction:column
+  }
+}
+</style>
+</head>
 <body>
 
-<div class="card">
+<header>
+<h1>PetScript Team Time-Off Calendar</h1>
+<p>Approved time off · Read only</p>
+</header>
 
-<div class="eyebrow">
-PETSCRIPT TIME OFF
+<main>
+
+<div class="toolbar">
+<div class="title" id="monthTitle"></div>
+
+<div class="nav">
+<button onclick="moveMonth(-1)">←</button>
+<button onclick="cursor=new Date();render()">Today</button>
+<button onclick="moveMonth(1)">→</button>
+</div>
 </div>
 
-<h1>
-GitHub deployment is working.
-</h1>
-
-<p>
-Your Worker is live.
-The next step is connecting the database.
-</p>
-
-<div class="step">
-
-<strong>
-1. Create a Cloudflare D1 database
-</strong>
-
-<span>
-Name it
-<span class="code">
-petscript-timeoff
-</span>.
-</span>
-
+<div class="calendarWrap">
+<div id="calendar" class="calendar"></div>
 </div>
 
-<div class="step">
-
-<strong>
-2. Add the database binding
-</strong>
-
-<span>
-Bind that D1 database to this Worker with the exact binding name
-<span class="code">
-DB
-</span>.
-</span>
-
+<div class="legend">
+Only approved time-off requests are shown.
 </div>
 
-<div class="step">
+</main>
 
-<strong>
-3. Reload this page
-</strong>
+<script>
 
-<span>
-The full dashboard will appear automatically.
-</span>
+var requests = [];
+var cursor = new Date();
 
-</div>
+document.addEventListener(
+  "DOMContentLoaded",
+  async function() {
 
-<div class="step">
+    try {
+      var response =
+        await fetch(
+          "/api/team-calendar"
+        );
 
-<strong>
-4. Add the OpenAI secret later
-</strong>
+      var data =
+        await response.json();
 
-<span>
-Add
-<span class="code">
-OPENAI_API_KEY
-</span>
-when you are ready to use automatic PDF/photo reading.
-</span>
+      requests =
+        data.requests || [];
 
-</div>
+      render();
+    } catch (err) {
+      document.getElementById(
+        "calendar"
+      ).innerHTML =
+        '<div style="padding:20px">Unable to load calendar.</div>';
+    }
+  }
+);
 
-</div>
+function localISO(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function esc(value) {
+  return String(
+    value == null
+      ? ""
+      : value
+  ).replace(
+    /[&<>"']/g,
+    function(ch) {
+      return {
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;",
+        '"':"&quot;",
+        "'":"&#039;"
+      }[ch];
+    }
+  );
+}
+
+function overlaps(row, date) {
+  return (
+    row.start_date <= date &&
+    row.end_date >= date
+  );
+}
+
+function render() {
+  var year =
+    cursor.getFullYear();
+
+  var month =
+    cursor.getMonth();
+
+  var first =
+    new Date(
+      year,
+      month,
+      1
+    );
+
+  var last =
+    new Date(
+      year,
+      month + 1,
+      0
+    );
+
+  document.getElementById(
+    "monthTitle"
+  ).textContent =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        month:"long",
+        year:"numeric"
+      }
+    ).format(first);
+
+  var start =
+    new Date(first);
+
+  start.setDate(
+    1 - first.getDay()
+  );
+
+  var end =
+    new Date(last);
+
+  end.setDate(
+    last.getDate() +
+    (6 - last.getDay())
+  );
+
+  var today =
+    localISO(
+      new Date()
+    );
+
+  var html =
+    [
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat"
+    ]
+      .map(
+        function(day) {
+          return (
+            '<div class="dow">' +
+            day +
+            "</div>"
+          );
+        }
+      )
+      .join("");
+
+  var d =
+    new Date(start);
+
+  while (d <= end) {
+    var ds =
+      localISO(d);
+
+    var rows =
+      requests.filter(
+        function(row) {
+          return overlaps(
+            row,
+            ds
+          );
+        }
+      );
+
+    html +=
+      '<div class="day ' +
+      (
+        d.getMonth() !== month
+          ? "other "
+          : ""
+      ) +
+      (
+        ds === today
+          ? "today"
+          : ""
+      ) +
+      '">' +
+
+      '<div class="daynum">' +
+      d.getDate() +
+      "</div>";
+
+    rows.forEach(
+      function(row) {
+        html +=
+          '<div class="event" title="' +
+          esc(
+            row.employee_name +
+            " — " +
+            row.request_type
+          ) +
+          '">' +
+          esc(
+            row.employee_name
+          ) +
+          " · " +
+          esc(
+            row.request_type
+          ) +
+          "</div>";
+      }
+    );
+
+    html +=
+      "</div>";
+
+    d.setDate(
+      d.getDate() + 1
+    );
+  }
+
+  document.getElementById(
+    "calendar"
+  ).innerHTML =
+    html;
+}
+
+function moveMonth(amount) {
+  cursor =
+    new Date(
+      cursor.getFullYear(),
+      cursor.getMonth() + amount,
+      1
+    );
+
+  render();
+}
+
+</script>
 
 </body>
 </html>`;
 
 const APP_HTML = `<!doctype html>
 <html lang="en">
-
 <head>
-
 <meta charset="utf-8">
-
-<meta
-  name="viewport"
-  content="width=device-width,initial-scale=1"
->
-
-<title>
-PetScript Time Off
-</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PetScript Time Off</title>
 
 <style>
-
 :root{
   --navy:#0d2138;
   --blue:#347ed8;
@@ -821,35 +1096,29 @@ PetScript Time Off
   --red:#aa3346;
   --amber:#936814
 }
-
 *{
   box-sizing:border-box
 }
-
 body{
   margin:0;
   font-family:Arial,sans-serif;
   background:var(--bg);
   color:var(--text)
 }
-
 button,
 input,
 select,
 textarea{
   font:inherit
 }
-
 button{
   cursor:pointer
 }
-
 .app{
   min-height:100vh;
   display:grid;
   grid-template-columns:245px 1fr
 }
-
 aside{
   background:var(--navy);
   color:#fff;
@@ -860,14 +1129,12 @@ aside{
   top:0;
   height:100vh
 }
-
 .brand{
   display:flex;
   gap:11px;
   align-items:center;
   padding:4px 8px 25px
 }
-
 .logo{
   width:42px;
   height:42px;
@@ -878,23 +1145,19 @@ aside{
   place-items:center;
   font-weight:900
 }
-
 .brand strong,
 .brand span{
   display:block
 }
-
 .brand span{
   font-size:11px;
   opacity:.6;
   margin-top:3px
 }
-
 nav{
   display:grid;
   gap:5px
 }
-
 nav button{
   border:0;
   background:transparent;
@@ -904,25 +1167,21 @@ nav button{
   border-radius:10px;
   font-weight:700
 }
-
 nav button:hover,
 nav button.active{
   background:rgba(255,255,255,.11);
   color:white
 }
-
 .foot{
   margin-top:auto;
   font-size:11px;
   opacity:.45;
   padding:8px
 }
-
 main{
   min-width:0;
   padding:30px 35px 60px
 }
-
 .top{
   display:flex;
   justify-content:space-between;
@@ -930,31 +1189,26 @@ main{
   gap:20px;
   margin-bottom:24px
 }
-
 .eyebrow{
   font-size:10px;
   letter-spacing:.14em;
   color:var(--blue);
   font-weight:900
 }
-
 h1{
   font-size:27px;
   margin:4px 0 0
 }
-
 h2{
   font-size:17px;
   margin:0
 }
-
 .today{
   font-size:12px;
   color:var(--muted);
   font-weight:600;
   margin-top:5px
 }
-
 .btn{
   border:0;
   border-radius:10px;
@@ -963,52 +1217,42 @@ h2{
   color:var(--text);
   font-weight:750
 }
-
 .btn.primary{
   background:var(--navy);
   color:white
 }
-
 .btn.danger{
   background:#feecef;
   color:var(--red)
 }
-
 .btn:disabled{
   opacity:.55
 }
-
 .view{
   display:none
 }
-
 .view.active{
   display:block
 }
-
 .stats{
   display:grid;
   grid-template-columns:repeat(4,1fr);
   gap:14px;
   margin-bottom:18px
 }
-
 .stat,
 .card{
   background:white;
   border:1px solid var(--line);
   border-radius:15px
 }
-
 .stat{
   padding:18px
 }
-
 .stat.dark{
   background:var(--navy);
   color:white
 }
-
 .stat label{
   font-size:10px;
   letter-spacing:.12em;
@@ -1016,29 +1260,24 @@ h2{
   opacity:.65;
   display:block
 }
-
 .stat strong{
   font-size:35px;
   display:block;
   margin:5px 0
 }
-
 .stat small{
   opacity:.65
 }
-
 .grid2{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:18px
 }
-
 .card{
   padding:20px;
   margin-bottom:18px;
   box-shadow:0 2px 8px rgba(13,33,56,.025)
 }
-
 .head{
   display:flex;
   justify-content:space-between;
@@ -1046,13 +1285,11 @@ h2{
   gap:12px;
   margin-bottom:13px
 }
-
 .sub{
   font-size:11px;
   color:var(--muted);
   margin-top:4px
 }
-
 .person{
   display:flex;
   gap:11px;
@@ -1060,11 +1297,9 @@ h2{
   padding:11px 0;
   border-top:1px solid var(--line)
 }
-
 .person:first-child{
   border-top:0
 }
-
 .avatar{
   width:38px;
   height:38px;
@@ -1075,40 +1310,33 @@ h2{
   place-items:center;
   font-weight:900
 }
-
 .grow{
   flex:1
 }
-
 .grow strong,
 .grow span{
   display:block
 }
-
 .grow span{
   font-size:11px;
   color:var(--muted);
   margin-top:3px
 }
-
 .empty{
   text-align:center;
   padding:32px 10px;
   color:var(--muted)
 }
-
 .empty strong{
   display:block;
   color:var(--text);
   margin-bottom:5px
 }
-
 table{
   width:100%;
   border-collapse:collapse;
   font-size:12px
 }
-
 th{
   text-align:left;
   padding:9px;
@@ -1117,50 +1345,41 @@ th{
   letter-spacing:.08em;
   border-bottom:1px solid var(--line)
 }
-
 td{
   padding:10px 9px;
   border-bottom:1px solid var(--line)
 }
-
 .table{
   overflow:auto
 }
-
 .status{
   border-radius:999px;
   padding:4px 8px;
   font-size:10px;
   font-weight:850
 }
-
 .Approved{
   background:#e7f6ef;
   color:var(--green)
 }
-
 .Pending{
   background:#fff4d7;
   color:var(--amber)
 }
-
 .Denied{
   background:#fde9ec;
   color:var(--red)
 }
-
 .form{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:12px
 }
-
 .form label{
   font-size:11px;
   font-weight:750;
   color:#596476
 }
-
 .form input,
 .form select,
 .form textarea{
@@ -1173,15 +1392,12 @@ td{
   background:white;
   color:var(--text)
 }
-
 .form textarea{
   min-height:80px
 }
-
 .span2{
   grid-column:span 2
 }
-
 .upload{
   display:block;
   border:2px dashed #ccd5df;
@@ -1190,11 +1406,9 @@ td{
   padding:34px;
   background:#fafcff
 }
-
 .upload input{
   display:none
 }
-
 .upicon{
   width:52px;
   height:52px;
@@ -1207,19 +1421,16 @@ td{
   font-size:24px;
   font-weight:900
 }
-
 .upload p{
   font-size:12px;
   color:var(--muted)
 }
-
 .chosen{
   font-size:12px;
   font-weight:800;
   color:var(--blue);
   margin-top:8px
 }
-
 .notice{
   padding:11px 13px;
   border-radius:10px;
@@ -1228,28 +1439,23 @@ td{
   font-size:12px;
   margin-bottom:15px
 }
-
 .notice.bad{
   background:#feecef;
   color:#962f40
 }
-
 .calbar{
   display:flex;
   justify-content:space-between;
   align-items:center;
   margin-bottom:13px
 }
-
 .calnav{
   display:flex;
   gap:7px
 }
-
 .calendarWrap{
   overflow:auto
 }
-
 .calendar{
   display:grid;
   grid-template-columns:repeat(7,1fr);
@@ -1259,7 +1465,6 @@ td{
   border-radius:12px;
   overflow:hidden
 }
-
 .dow{
   padding:9px;
   text-align:center;
@@ -1270,7 +1475,6 @@ td{
   border-right:1px solid var(--line);
   border-bottom:1px solid var(--line)
 }
-
 .day{
   min-height:112px;
   background:white;
@@ -1278,21 +1482,17 @@ td{
   border-right:1px solid var(--line);
   border-bottom:1px solid var(--line)
 }
-
 .day.other{
   background:#fafbfc;
   color:#aeb6c1
 }
-
 .day.current{
   box-shadow:inset 0 0 0 2px var(--blue)
 }
-
 .daynum{
   font-size:11px;
   font-weight:850
 }
-
 .event{
   font-size:9px;
   font-weight:800;
@@ -1305,7 +1505,6 @@ td{
   overflow:hidden;
   text-overflow:ellipsis
 }
-
 .modal{
   position:fixed;
   inset:0;
@@ -1316,11 +1515,9 @@ td{
   padding:18px;
   z-index:20
 }
-
 .modal.show{
   display:flex
 }
-
 .modalCard{
   background:white;
   border-radius:17px;
@@ -1329,90 +1526,72 @@ td{
   max-height:92vh;
   overflow:auto
 }
-
 .modalHead{
   display:flex;
   justify-content:space-between;
   align-items:flex-start;
   margin-bottom:15px
 }
-
 .x{
   background:none;
   border:0;
   font-size:25px;
   color:var(--muted)
 }
-
 .actions{
   display:flex;
   justify-content:flex-end;
   gap:8px;
   margin-top:14px
 }
-
 @media(max-width:950px){
   .app{
     grid-template-columns:1fr
   }
-
   aside{
     height:auto;
     position:relative
   }
-
   nav{
     grid-template-columns:repeat(3,1fr)
   }
-
   .foot{
     display:none
   }
-
   main{
     padding:20px
   }
-
   .stats{
     grid-template-columns:1fr 1fr
   }
-
   .grid2{
     grid-template-columns:1fr
   }
 }
-
 @media(max-width:600px){
   nav{
     grid-template-columns:1fr 1fr
   }
-
   .top{
     flex-direction:column;
     align-items:flex-start
   }
-
   .form{
     grid-template-columns:1fr
   }
-
   .span2{
     grid-column:span 1
   }
-
   .card{
     padding:15px
   }
-
   main{
     padding:15px
   }
-
   .stat strong{
     font-size:29px
   }
 }
-
 </style>
 </head>
 
@@ -1423,62 +1602,20 @@ td{
 <aside>
 
 <div class="brand">
-
-<div class="logo">
-PS
-</div>
-
+<div class="logo">PS</div>
 <div>
-<strong>
-PetScript
-</strong>
-
-<span>
-Time Off Admin
-</span>
+<strong>PetScript</strong>
+<span>Time Off Admin</span>
 </div>
-
 </div>
 
 <nav>
-
-<button
-  data-view="dashboard"
-  class="active"
->
-Dashboard
-</button>
-
-<button
-  data-view="week"
->
-This Week
-</button>
-
-<button
-  data-view="month"
->
-This Month
-</button>
-
-<button
-  data-view="calendar"
->
-Calendar
-</button>
-
-<button
-  data-view="employees"
->
-Employees
-</button>
-
-<button
-  data-view="upload"
->
-Upload Request
-</button>
-
+<button data-view="dashboard" class="active">Dashboard</button>
+<button data-view="week">This Week</button>
+<button data-view="month">This Month</button>
+<button data-view="calendar">Calendar</button>
+<button data-view="employees">Employees</button>
+<button data-view="upload">Upload Request</button>
 </nav>
 
 <div class="foot">
@@ -1492,20 +1629,9 @@ Internal employee scheduling
 <div class="top">
 
 <div>
-
-<div class="eyebrow">
-EMPLOYEE LEAVE
-</div>
-
-<h1 id="title">
-Time Off Dashboard
-</h1>
-
-<div
-  class="today"
-  id="todayLabel"
-></div>
-
+<div class="eyebrow">EMPLOYEE LEAVE</div>
+<h1 id="title">Time Off Dashboard</h1>
+<div class="today" id="todayLabel"></div>
 </div>
 
 <button
@@ -1563,18 +1689,8 @@ Time Off Dashboard
 <div class="modalHead">
 
 <div>
-
-<div
-  class="eyebrow"
-  id="modalEyebrow"
->
-TIME OFF
-</div>
-
-<h2 id="modalTitle">
-Request
-</h2>
-
+<div class="eyebrow" id="modalEyebrow">TIME OFF</div>
+<h2 id="modalTitle">Request</h2>
 </div>
 
 <button
@@ -1592,40 +1708,27 @@ Request
   class="form"
 >
 
-<input
-  type="hidden"
-  id="reqId"
->
+<input type="hidden" id="reqId">
 
 <label class="span2">
 Match employee
-
 <select id="employeeSelect"></select>
-
 </label>
 
 <label class="span2">
 Employee name
-
-<input
-  id="employeeName"
-  required
->
-
+<input id="employeeName" required>
 </label>
 
 <label>
 Department
-
 <input id="department">
-
 </label>
 
 <label>
 Type
 
 <select id="requestType">
-
 <option>PTO</option>
 <option>Vacation</option>
 <option>Sick</option>
@@ -1633,51 +1736,34 @@ Type
 <option>Unpaid</option>
 <option>Bereavement</option>
 <option>Time Off</option>
-
 </select>
 
 </label>
 
 <label>
 Start date
-
-<input
-  type="date"
-  id="startDate"
-  required
->
-
+<input type="date" id="startDate" required>
 </label>
 
 <label>
 End date
-
-<input
-  type="date"
-  id="endDate"
-  required
->
-
+<input type="date" id="endDate" required>
 </label>
 
 <label>
 Status
 
 <select id="status">
-
 <option>Approved</option>
 <option>Pending</option>
 <option>Denied</option>
-
 </select>
 
 </label>
 
 <label class="span2">
 Notes
-
 <textarea id="notes"></textarea>
-
 </label>
 
 <input
@@ -1721,23 +1807,12 @@ var calendarCursor =
   new Date();
 
 var titles = {
-  dashboard:
-    "Time Off Dashboard",
-
-  week:
-    "This Week",
-
-  month:
-    "This Month",
-
-  calendar:
-    "Team Calendar",
-
-  employees:
-    "Employee Directory",
-
-  upload:
-    "Upload Time-Off Request"
+  dashboard:"Time Off Dashboard",
+  week:"This Week",
+  month:"This Month",
+  calendar:"Team Calendar",
+  employees:"Employee Directory",
+  upload:"Upload Time-Off Request"
 };
 
 document.addEventListener(
@@ -1750,17 +1825,10 @@ document.addEventListener(
       new Intl.DateTimeFormat(
         "en-US",
         {
-          weekday:
-            "long",
-
-          month:
-            "long",
-
-          day:
-            "numeric",
-
-          year:
-            "numeric"
+          weekday:"long",
+          month:"long",
+          day:"numeric",
+          year:"numeric"
         }
       ).format(
         new Date()
@@ -1774,13 +1842,11 @@ document.addEventListener(
         btn.addEventListener(
           "click",
           function() {
-
             showView(
               btn.getAttribute(
                 "data-view"
               )
             );
-
           }
         );
 
@@ -1829,8 +1895,7 @@ async function api(
         {},
         options,
         {
-          headers:
-            headers
+          headers:headers
         }
       )
     );
@@ -1838,49 +1903,36 @@ async function api(
   var data;
 
   try {
-
     data =
       await response.json();
-
-  } catch (err) {
-
+  } catch {
     data = {};
-
   }
 
   if (!response.ok) {
-
     throw new Error(
       data.error ||
       "Request failed."
     );
-
   }
 
   return data;
-
 }
 
 async function reload() {
-
   try {
-
     state =
       await api(
         "/api/data"
       );
 
     renderAll();
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   }
-
 }
 
 function showMessage(
@@ -1893,35 +1945,26 @@ function showMessage(
       "message"
     );
 
-  if (!text) {
-
-    el.innerHTML = "";
-    return;
-
-  }
-
   el.innerHTML =
-    '<div class="notice ' +
-    (bad ? "bad" : "") +
-    '">' +
-    escapeHtml(text) +
-    "</div>";
+    text
+      ? '<div class="notice ' +
+        (bad ? "bad" : "") +
+        '">' +
+        escapeHtml(text) +
+        "</div>"
+      : "";
 
-  setTimeout(
-    function() {
-
-      el.innerHTML = "";
-
-    },
-    5000
-  );
-
+  if (text) {
+    setTimeout(
+      function() {
+        el.innerHTML = "";
+      },
+      5000
+    );
+  }
 }
 
-function showView(
-  name
-) {
-
+function showView(name) {
   currentView =
     name;
 
@@ -1929,12 +1972,10 @@ function showView(
     ".view"
   ).forEach(
     function(el) {
-
       el.classList.toggle(
         "active",
         el.id === name
       );
-
     }
   );
 
@@ -1942,14 +1983,12 @@ function showView(
     "nav button"
   ).forEach(
     function(btn) {
-
       btn.classList.toggle(
         "active",
         btn.getAttribute(
           "data-view"
         ) === name
       );
-
     }
   );
 
@@ -1962,17 +2001,11 @@ function showView(
     name ===
     "calendar"
   ) {
-
     renderCalendar();
-
   }
-
 }
 
-function escapeHtml(
-  value
-) {
-
+function escapeHtml(value) {
   return String(
     value == null
       ? ""
@@ -1980,108 +2013,67 @@ function escapeHtml(
   ).replace(
     /[&<>"']/g,
     function(ch) {
-
       return {
-        "&":
-          "&amp;",
-
-        "<":
-          "&lt;",
-
-        ">":
-          "&gt;",
-
-        '"':
-          "&quot;",
-
-        "'":
-          "&#039;"
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;",
+        '"':"&quot;",
+        "'":"&#039;"
       }[ch];
-
     }
   );
-
 }
 
-function localISO(
-  date
-) {
-
+function localISO(date) {
   return [
     date.getFullYear(),
-
     String(
       date.getMonth() + 1
-    ).padStart(
-      2,
-      "0"
-    ),
-
+    ).padStart(2,"0"),
     String(
       date.getDate()
-    ).padStart(
-      2,
-      "0"
-    )
+    ).padStart(2,"0")
   ].join("-");
-
 }
 
-function parseDate(
-  value
-) {
-
-  var parts =
+function parseDate(value) {
+  var p =
     value
       .split("-")
       .map(Number);
 
   return new Date(
-    parts[0],
-    parts[1] - 1,
-    parts[2]
+    p[0],
+    p[1] - 1,
+    p[2]
   );
-
 }
 
-function fmtDate(
-  value
-) {
-
+function fmtDate(value) {
   return new Intl.DateTimeFormat(
     "en-US",
     {
-      month:
-        "short",
-
-      day:
-        "numeric"
+      month:"short",
+      day:"numeric"
     }
   ).format(
     parseDate(value)
   );
-
 }
 
-function initials(
-  name
-) {
-
+function initials(name) {
   return String(
     name || "?"
   )
     .split(/\s+/)
-    .slice(0, 2)
+    .slice(0,2)
     .map(
       function(part) {
-
         return part.charAt(0);
-
       }
     )
     .join("")
     .toUpperCase();
-
 }
 
 function overlaps(
@@ -2089,22 +2081,17 @@ function overlaps(
   start,
   end
 ) {
-
   return (
     row.status !==
       "Denied" &&
-
     row.start_date <=
       end &&
-
     row.end_date >=
       start
   );
-
 }
 
 function periodInfo() {
-
   var now =
     new Date();
 
@@ -2148,61 +2135,44 @@ function periodInfo() {
     );
 
   return {
-    today:
-      today,
-
+    today,
     weekStart:
       localISO(
         weekStart
       ),
-
     weekEnd:
       localISO(
         weekEnd
       ),
-
     monthStart:
       localISO(
         monthStart
       ),
-
     monthEnd:
       localISO(
         monthEnd
       )
   };
-
 }
 
-function uniqueCount(
-  rows
-) {
-
+function uniqueCount(rows) {
   return new Set(
     rows.map(
       function(row) {
-
         return row.employee_name.toLowerCase();
-
       }
     )
   ).size;
-
 }
 
-function dateRange(
-  row
-) {
-
+function dateRange(row) {
   if (
     row.start_date ===
     row.end_date
   ) {
-
     return fmtDate(
       row.start_date
     );
-
   }
 
   return (
@@ -2214,7 +2184,6 @@ function dateRange(
       row.end_date
     )
   );
-
 }
 
 function personRow(
@@ -2222,49 +2191,35 @@ function personRow(
   subtitle,
   rightHtml
 ) {
-
   return (
     '<div class="person">' +
-
     '<div class="avatar">' +
     escapeHtml(
       initials(name)
     ) +
     "</div>" +
-
     '<div class="grow">' +
-
     "<strong>" +
     escapeHtml(name) +
     "</strong>" +
-
     "<span>" +
     escapeHtml(
       subtitle || ""
     ) +
     "</span>" +
-
     "</div>" +
-
     (rightHtml || "") +
-
     "</div>"
   );
-
 }
 
-function requestTable(
-  rows
-) {
-
+function requestTable(rows) {
   if (!rows.length) {
-
     return (
       '<div class="empty">' +
       "<strong>No requests yet.</strong>" +
       "</div>"
     );
-
   }
 
   var html =
@@ -2283,72 +2238,50 @@ function requestTable(
 
   rows.forEach(
     function(row) {
-
       html +=
         "<tr>" +
-
         "<td>" +
-
         "<strong>" +
         escapeHtml(
           row.employee_name
         ) +
         "</strong>" +
-
         '<div class="sub">' +
         escapeHtml(
           row.department || ""
         ) +
         "</div>" +
-
         "</td>" +
-
         "<td>" +
         escapeHtml(
           dateRange(row)
         ) +
         "</td>" +
-
         "<td>" +
         escapeHtml(
           row.request_type
         ) +
         "</td>" +
-
-        '<td>' +
-
+        "<td>" +
         '<span class="status ' +
         escapeHtml(
           row.status
         ) +
         '">' +
-
         escapeHtml(
           row.status
         ) +
-
         "</span>" +
-
         "</td>" +
-
         "<td>" +
-
         '<button class="btn" onclick="editRequest(' +
         row.id +
-        ')">' +
-        "Edit" +
-        "</button> " +
-
+        ')">Edit</button> ' +
         '<button class="btn danger" onclick="deleteRequest(' +
         row.id +
-        ')">' +
-        "Delete" +
-        "</button>" +
-
+        ')">Delete</button>' +
         "</td>" +
-
         "</tr>";
-
     }
   );
 
@@ -2358,61 +2291,51 @@ function requestTable(
     "</div>";
 
   return html;
-
 }
 
 function renderAll() {
-
   renderDashboard();
   renderWeek();
   renderMonth();
   renderEmployees();
   renderUpload();
   renderCalendar();
-
 }
 
 function renderDashboard() {
-
   var p =
     periodInfo();
 
   var todayRows =
     state.requests.filter(
       function(row) {
-
         return overlaps(
           row,
           p.today,
           p.today
         );
-
       }
     );
 
   var weekRows =
     state.requests.filter(
       function(row) {
-
         return overlaps(
           row,
           p.weekStart,
           p.weekEnd
         );
-
       }
     );
 
   var monthRows =
     state.requests.filter(
       function(row) {
-
         return overlaps(
           row,
           p.monthStart,
           p.monthEnd
         );
-
       }
     );
 
@@ -2421,19 +2344,15 @@ function renderDashboard() {
       todayRows
         .filter(
           function(row) {
-
             return (
               row.status ===
               "Approved"
             );
-
           }
         )
         .map(
           function(row) {
-
             return row.employee_name.toLowerCase();
-
           }
         )
     );
@@ -2441,11 +2360,9 @@ function renderDashboard() {
   var working =
     state.employees.filter(
       function(emp) {
-
         return !offToday.has(
           emp.name.toLowerCase()
         );
-
       }
     );
 
@@ -2453,49 +2370,39 @@ function renderDashboard() {
     state.requests
       .filter(
         function(row) {
-
           return (
             row.end_date >=
               p.today &&
-
             row.status !==
               "Denied"
           );
-
         }
       )
-      .slice(
-        0,
-        12
-      );
+      .slice(0,12);
 
   var todayHtml =
     todayRows.length
       ? todayRows
           .map(
             function(row) {
-
               return personRow(
                 row.employee_name,
-
                 (
                   row.department ||
                   "No department"
                 ) +
                   " · " +
                   row.request_type,
-
                 '<span class="status ' +
-                  escapeHtml(
-                    row.status
-                  ) +
-                  '">' +
-                  escapeHtml(
-                    row.status
-                  ) +
-                  "</span>"
+                escapeHtml(
+                  row.status
+                ) +
+                '">' +
+                escapeHtml(
+                  row.status
+                ) +
+                "</span>"
               );
-
             }
           )
           .join("")
@@ -2511,182 +2418,115 @@ function renderDashboard() {
       ? working
           .map(
             function(emp) {
-
               return personRow(
                 emp.name,
                 emp.department ||
-                  "No department",
+                "No department",
                 ""
               );
-
             }
           )
           .join("")
       : (
           '<div class="empty">' +
           "<strong>No employees in the roster.</strong>" +
-          "Add employees under Employees." +
           "</div>"
         );
 
   document.getElementById(
     "dashboard"
   ).innerHTML =
-
     '<div class="stats">' +
+    '<div class="stat dark">' +
+    "<label>OFF TODAY</label>" +
+    "<strong>" +
+    uniqueCount(
+      todayRows
+    ) +
+    "</strong>" +
+    "<small>" +
+    fmtDate(
+      p.today
+    ) +
+    "</small>" +
+    "</div>" +
 
-      '<div class="stat dark">' +
+    '<div class="stat">' +
+    "<label>WORKING TODAY</label>" +
+    "<strong>" +
+    working.length +
+    "</strong>" +
+    "<small>Active roster minus approved leave</small>" +
+    "</div>" +
 
-        "<label>OFF TODAY</label>" +
+    '<div class="stat">' +
+    "<label>THIS WEEK</label>" +
+    "<strong>" +
+    uniqueCount(
+      weekRows
+    ) +
+    "</strong>" +
+    "<small>" +
+    fmtDate(
+      p.weekStart
+    ) +
+    " – " +
+    fmtDate(
+      p.weekEnd
+    ) +
+    "</small>" +
+    "</div>" +
 
-        "<strong>" +
-        uniqueCount(
-          todayRows
-        ) +
-        "</strong>" +
-
-        "<small>" +
-        fmtDate(
-          p.today
-        ) +
-        "</small>" +
-
-      "</div>" +
-
-      '<div class="stat">' +
-
-        "<label>WORKING TODAY</label>" +
-
-        "<strong>" +
-        working.length +
-        "</strong>" +
-
-        "<small>" +
-        "Active roster minus approved leave" +
-        "</small>" +
-
-      "</div>" +
-
-      '<div class="stat">' +
-
-        "<label>THIS WEEK</label>" +
-
-        "<strong>" +
-        uniqueCount(
-          weekRows
-        ) +
-        "</strong>" +
-
-        "<small>" +
-        fmtDate(
-          p.weekStart
-        ) +
-        " – " +
-        fmtDate(
-          p.weekEnd
-        ) +
-        "</small>" +
-
-      "</div>" +
-
-      '<div class="stat">' +
-
-        "<label>THIS MONTH</label>" +
-
-        "<strong>" +
-        uniqueCount(
-          monthRows
-        ) +
-        "</strong>" +
-
-        "<small>" +
-        "Current month" +
-        "</small>" +
-
-      "</div>" +
-
+    '<div class="stat">' +
+    "<label>THIS MONTH</label>" +
+    "<strong>" +
+    uniqueCount(
+      monthRows
+    ) +
+    "</strong>" +
+    "<small>Current month</small>" +
+    "</div>" +
     "</div>" +
 
     '<div class="grid2">' +
 
-      '<div class="card">' +
+    '<div class="card">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">TODAY</div>' +
+    "<h2>Who is off</h2>" +
+    "</div>" +
+    "</div>" +
+    todayHtml +
+    "</div>" +
 
-        '<div class="head">' +
-
-          "<div>" +
-
-            '<div class="eyebrow">' +
-            "TODAY" +
-            "</div>" +
-
-            "<h2>" +
-            "Who is off" +
-            "</h2>" +
-
-          "</div>" +
-
-        "</div>" +
-
-        todayHtml +
-
-      "</div>" +
-
-      '<div class="card">' +
-
-        '<div class="head">' +
-
-          "<div>" +
-
-            '<div class="eyebrow">' +
-            "TODAY" +
-            "</div>" +
-
-            "<h2>" +
-            "Who is working" +
-            "</h2>" +
-
-          "</div>" +
-
-        "</div>" +
-
-        workingHtml +
-
-      "</div>" +
+    '<div class="card">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">TODAY</div>' +
+    "<h2>Who is working</h2>" +
+    "</div>" +
+    "</div>" +
+    workingHtml +
+    "</div>" +
 
     "</div>" +
 
     '<div class="card">' +
-
-      '<div class="head">' +
-
-        "<div>" +
-
-          '<div class="eyebrow">' +
-          "UPCOMING" +
-          "</div>" +
-
-          "<h2>" +
-          "Upcoming requests" +
-          "</h2>" +
-
-        "</div>" +
-
-        '<button class="btn" onclick="newRequest()">' +
-        "＋ Manual request" +
-        "</button>" +
-
-      "</div>" +
-
-      requestTable(
-        upcoming
-      ) +
-
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">UPCOMING</div>' +
+    "<h2>Upcoming requests</h2>" +
+    "</div>" +
+    '<button class="btn" onclick="newRequest()">＋ Manual request</button>' +
+    "</div>" +
+    requestTable(
+      upcoming
+    ) +
     "</div>";
-
 }
 
 function renderWeek() {
-
   var p =
     periodInfo();
 
@@ -2703,7 +2543,6 @@ function renderWeek() {
     i < 7;
     i++
   ) {
-
     var dateString =
       localISO(
         date
@@ -2712,13 +2551,11 @@ function renderWeek() {
     var rows =
       state.requests.filter(
         function(row) {
-
           return overlaps(
             row,
             dateString,
             dateString
           );
-
         }
       );
 
@@ -2727,28 +2564,24 @@ function renderWeek() {
         ? rows
             .map(
               function(row) {
-
                 return personRow(
                   row.employee_name,
-
                   (
                     row.department ||
                     ""
                   ) +
                     " · " +
                     row.request_type,
-
                   '<span class="status ' +
-                    escapeHtml(
-                      row.status
-                    ) +
-                    '">' +
-                    escapeHtml(
-                      row.status
-                    ) +
-                    "</span>"
+                  escapeHtml(
+                    row.status
+                  ) +
+                  '">' +
+                  escapeHtml(
+                    row.status
+                  ) +
+                  "</span>"
                 );
-
               }
             )
             .join("")
@@ -2760,46 +2593,31 @@ function renderWeek() {
 
     html +=
       '<div class="card">' +
-
-        '<div class="head">' +
-
-          "<div>" +
-
-            '<div class="eyebrow">' +
-
-            new Intl.DateTimeFormat(
-              "en-US",
-              {
-                weekday:
-                  "long"
-              }
-            )
-              .format(
-                date
-              )
-              .toUpperCase() +
-
-            "</div>" +
-
-            "<h2>" +
-            fmtDate(
-              dateString
-            ) +
-            "</h2>" +
-
-          "</div>" +
-
-        "</div>" +
-
-        content +
-
+      '<div class="head">' +
+      "<div>" +
+      '<div class="eyebrow">' +
+      new Intl.DateTimeFormat(
+        "en-US",
+        {
+          weekday:"long"
+        }
+      )
+        .format(date)
+        .toUpperCase() +
+      "</div>" +
+      "<h2>" +
+      fmtDate(
+        dateString
+      ) +
+      "</h2>" +
+      "</div>" +
+      "</div>" +
+      content +
       "</div>";
 
     date.setDate(
-      date.getDate() +
-      1
+      date.getDate() + 1
     );
-
   }
 
   html +=
@@ -2809,82 +2627,54 @@ function renderWeek() {
     "week"
   ).innerHTML =
     html;
-
 }
 
 function renderMonth() {
-
   var p =
     periodInfo();
 
   var rows =
     state.requests.filter(
       function(row) {
-
         return overlaps(
           row,
           p.monthStart,
           p.monthEnd
         );
-
       }
     );
 
   document.getElementById(
     "month"
   ).innerHTML =
-
     '<div class="card">' +
-
-      '<div class="head">' +
-
-        "<div>" +
-
-          '<div class="eyebrow">' +
-          "CURRENT MONTH" +
-          "</div>" +
-
-          "<h2>" +
-          "Monthly leave" +
-          "</h2>" +
-
-        "</div>" +
-
-        '<button class="btn primary" onclick="newRequest()">' +
-        "＋ Add request" +
-        "</button>" +
-
-      "</div>" +
-
-      requestTable(
-        rows
-      ) +
-
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">CURRENT MONTH</div>' +
+    "<h2>Monthly leave</h2>" +
+    "</div>" +
+    '<button class="btn primary" onclick="newRequest()">＋ Add request</button>' +
+    "</div>" +
+    requestTable(
+      rows
+    ) +
     "</div>";
-
 }
 
 function renderEmployees() {
-
   var employeeHtml =
     state.employees.length
       ? state.employees
           .map(
             function(emp) {
-
               return personRow(
                 emp.name,
-
                 emp.department ||
-                  "No department",
-
+                "No department",
                 '<button class="btn danger" onclick="removeEmployee(' +
-                  emp.id +
-                  ')">' +
-                  "Remove" +
-                  "</button>"
+                emp.id +
+                ')">Remove</button>'
               );
-
             }
           )
           .join("")
@@ -2897,76 +2687,46 @@ function renderEmployees() {
   document.getElementById(
     "employees"
   ).innerHTML =
-
     '<div class="grid2">' +
 
-      '<div class="card">' +
+    '<div class="card">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">ROSTER</div>' +
+    "<h2>Active employees</h2>" +
+    '<div class="sub">Used to calculate who is working today.</div>' +
+    "</div>" +
+    "</div>" +
+    employeeHtml +
+    "</div>" +
 
-        '<div class="head">' +
+    '<div class="card">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">ADD EMPLOYEE</div>' +
+    "<h2>Employee directory</h2>" +
+    "</div>" +
+    "</div>" +
 
-          "<div>" +
+    '<form id="employeeForm" class="form">' +
 
-            '<div class="eyebrow">' +
-            "ROSTER" +
-            "</div>" +
+    '<label class="span2">' +
+    "Name" +
+    '<input id="newEmployeeName" required>' +
+    "</label>" +
 
-            "<h2>" +
-            "Active employees" +
-            "</h2>" +
+    '<label class="span2">' +
+    "Department" +
+    '<input id="newEmployeeDepartment">' +
+    "</label>" +
 
-            '<div class="sub">' +
-            "Used to calculate who is working today." +
-            "</div>" +
+    '<div class="span2">' +
+    '<button class="btn primary">Add employee</button>' +
+    "</div>" +
 
-          "</div>" +
+    "</form>" +
 
-        "</div>" +
-
-        employeeHtml +
-
-      "</div>" +
-
-      '<div class="card">' +
-
-        '<div class="head">' +
-
-          "<div>" +
-
-            '<div class="eyebrow">' +
-            "ADD EMPLOYEE" +
-            "</div>" +
-
-            "<h2>" +
-            "Employee directory" +
-            "</h2>" +
-
-          "</div>" +
-
-        "</div>" +
-
-        '<form id="employeeForm" class="form">' +
-
-          '<label class="span2">' +
-          "Name" +
-          '<input id="newEmployeeName" required>' +
-          "</label>" +
-
-          '<label class="span2">' +
-          "Department" +
-          '<input id="newEmployeeDepartment" placeholder="Pharmacy, CSR, Shipping...">' +
-          "</label>" +
-
-          '<div class="span2">' +
-
-            '<button class="btn primary">' +
-            "Add employee" +
-            "</button>" +
-
-          "</div>" +
-
-        "</form>" +
-
-      "</div>" +
+    "</div>" +
 
     "</div>";
 
@@ -2976,30 +2736,22 @@ function renderEmployees() {
     "submit",
     addEmployee
   );
-
 }
 
-async function addEmployee(
-  event
-) {
-
+async function addEmployee(event) {
   event.preventDefault();
 
   try {
-
     await api(
       "/api/employees",
       {
-        method:
-          "POST",
-
+        method:"POST",
         body:
           JSON.stringify({
             name:
               document.getElementById(
                 "newEmployeeName"
               ).value,
-
             department:
               document.getElementById(
                 "newEmployeeDepartment"
@@ -3013,157 +2765,114 @@ async function addEmployee(
     );
 
     await reload();
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   }
-
 }
 
-async function removeEmployee(
-  id
-) {
-
+async function removeEmployee(id) {
   if (
     !confirm(
-      "Remove this employee from the active roster? Existing leave history will remain."
+      "Remove this employee from the active roster?"
     )
   ) {
     return;
   }
 
   try {
-
     await api(
       "/api/employees/" +
       id,
       {
-        method:
-          "DELETE"
+        method:"DELETE"
       }
     );
 
     await reload();
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   }
-
 }
 
 function renderUpload() {
-
   document.getElementById(
     "upload"
   ).innerHTML =
-
     '<div class="grid2">' +
 
-      '<div class="card">' +
+    '<div class="card">' +
 
-        '<div class="head">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">AI DOCUMENT READER</div>' +
+    "<h2>Upload request sheet</h2>" +
+    '<div class="sub">PDF, JPG, PNG or WEBP · 10 MB maximum</div>' +
+    "</div>" +
+    "</div>" +
 
-          "<div>" +
+    '<form id="uploadForm">' +
 
-            '<div class="eyebrow">' +
-            "AI DOCUMENT READER" +
-            "</div>" +
+    '<label class="upload" for="sheetFile">' +
 
-            "<h2>" +
-            "Upload request sheet" +
-            "</h2>" +
+    '<div class="upicon">↑</div>' +
 
-            '<div class="sub">' +
-            "PDF, JPG, PNG or WEBP · 10 MB maximum" +
-            "</div>" +
+    "<strong>Click to choose the time-off request sheet</strong>" +
 
-          "</div>" +
+    "<p>The AI reads employee name, dates, leave type, approval status and notes.</p>" +
 
-        "</div>" +
+    '<input id="sheetFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>' +
 
-        '<form id="uploadForm">' +
+    '<div class="chosen" id="chosenFile"></div>' +
 
-          '<label class="upload" for="sheetFile">' +
+    "</label>" +
 
-            '<div class="upicon">' +
-            "↑" +
-            "</div>" +
+    '<button id="readSheetButton" class="btn primary" style="width:100%;margin-top:13px;padding:13px">' +
+    "Read request sheet" +
+    "</button>" +
 
-            "<strong>" +
-            "Click to choose the time-off request sheet" +
-            "</strong>" +
+    "</form>" +
 
-            "<p>" +
-            "The AI reads employee name, dates, leave type, approval status and notes." +
-            "</p>" +
+    "</div>" +
 
-            '<input id="sheetFile" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>' +
+    '<div class="card">' +
+    '<div class="head">' +
+    "<div>" +
+    '<div class="eyebrow">WORKFLOW</div>' +
+    "<h2>What happens</h2>" +
+    "</div>" +
+    "</div>" +
 
-            '<div class="chosen" id="chosenFile"></div>' +
+    personRow(
+      "1. Upload",
+      "Use the signed or scanned request sheet.",
+      ""
+    ) +
 
-          "</label>" +
+    personRow(
+      "2. AI reads it",
+      "Employee, dates, type and status are extracted.",
+      ""
+    ) +
 
-          '<button id="readSheetButton" class="btn primary" style="width:100%;margin-top:13px;padding:13px">' +
-          "Read request sheet" +
-          "</button>" +
+    personRow(
+      "3. You review it",
+      "Correct anything before it is stored.",
+      ""
+    ) +
 
-        "</form>" +
+    personRow(
+      "4. Calendar updates",
+      "Today, week, month and calendar update immediately.",
+      ""
+    ) +
 
-      "</div>" +
-
-      '<div class="card">' +
-
-        '<div class="head">' +
-
-          "<div>" +
-
-            '<div class="eyebrow">' +
-            "WORKFLOW" +
-            "</div>" +
-
-            "<h2>" +
-            "What happens" +
-            "</h2>" +
-
-          "</div>" +
-
-        "</div>" +
-
-        personRow(
-          "1. Upload",
-          "Use the signed or scanned request sheet.",
-          ""
-        ) +
-
-        personRow(
-          "2. AI reads it",
-          "Employee, dates, type and status are extracted.",
-          ""
-        ) +
-
-        personRow(
-          "3. You review it",
-          "Correct anything before it is stored.",
-          ""
-        ) +
-
-        personRow(
-          "4. Calendar updates",
-          "Today, week, month and calendar update immediately.",
-          ""
-        ) +
-
-      "</div>" +
+    "</div>" +
 
     "</div>";
 
@@ -3175,14 +2884,12 @@ function renderUpload() {
   fileInput.addEventListener(
     "change",
     function() {
-
       document.getElementById(
         "chosenFile"
       ).textContent =
         fileInput.files[0]
           ? fileInput.files[0].name
           : "";
-
     }
   );
 
@@ -3192,13 +2899,9 @@ function renderUpload() {
     "submit",
     readSheet
   );
-
 }
 
-async function readSheet(
-  event
-) {
-
+async function readSheet(event) {
   event.preventDefault();
 
   var file =
@@ -3222,7 +2925,6 @@ async function readSheet(
     "Reading sheet…";
 
   try {
-
     var form =
       new FormData();
 
@@ -3235,11 +2937,8 @@ async function readSheet(
       await api(
         "/api/read-sheet",
         {
-          method:
-            "POST",
-
-          body:
-            form
+          method:"POST",
+          body:form
         }
       );
 
@@ -3248,45 +2947,32 @@ async function readSheet(
     );
 
     showMessage(
-      "Sheet read successfully. Review the information before saving."
+      "Sheet read successfully. Review before saving."
     );
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   } finally {
-
     button.disabled =
       false;
 
     button.textContent =
       "Read request sheet";
-
   }
-
 }
 
-function employeeOptions(
-  selectedId
-) {
-
+function employeeOptions(selectedId) {
   var html =
-    '<option value="">' +
-    "— Select/match employee —" +
-    "</option>";
+    '<option value="">— Select/match employee —</option>';
 
   state.employees.forEach(
     function(emp) {
-
       html +=
         '<option value="' +
         emp.id +
         '"' +
-
         (
           String(emp.id) ===
           String(
@@ -3295,50 +2981,38 @@ function employeeOptions(
             ? " selected"
             : ""
         ) +
-
         ">" +
-
         escapeHtml(
           emp.name
         ) +
-
         " — " +
-
         escapeHtml(
           emp.department || ""
         ) +
-
         "</option>";
-
     }
   );
 
   return html;
-
 }
 
 function wireEmployeeSelect() {
-
   document.getElementById(
     "employeeSelect"
   ).addEventListener(
     "change",
     function(event) {
-
       var emp =
         state.employees.find(
           function(item) {
-
             return (
               String(item.id) ===
               event.target.value
             );
-
           }
         );
 
       if (emp) {
-
         document.getElementById(
           "employeeName"
         ).value =
@@ -3348,19 +3022,15 @@ function wireEmployeeSelect() {
           "department"
         ).value =
           emp.department || "";
-
       }
-
     }
   );
-
 }
 
 function setRequestForm(
   row,
   id
 ) {
-
   row =
     row || {};
 
@@ -3439,11 +3109,9 @@ function setRequestForm(
     row.source_filename || "";
 
   wireEmployeeSelect();
-
 }
 
 function newRequest() {
-
   document.getElementById(
     "modalEyebrow"
   ).textContent =
@@ -3456,11 +3124,8 @@ function newRequest() {
 
   setRequestForm(
     {
-      request_type:
-        "PTO",
-
-      status:
-        "Approved"
+      request_type:"PTO",
+      status:"Approved"
     },
     ""
   );
@@ -3470,17 +3135,12 @@ function newRequest() {
   ).classList.add(
     "show"
   );
-
 }
 
-function openExtracted(
-  row
-) {
-
+function openExtracted(row) {
   var match =
     state.employees.find(
       function(emp) {
-
         return (
           emp.name.toLowerCase() ===
           String(
@@ -3488,35 +3148,27 @@ function openExtracted(
             ""
           ).toLowerCase()
         );
-
       }
     );
 
   if (match) {
-
     row.employee_id =
       match.id;
 
     if (!row.department) {
-
       row.department =
         match.department;
-
     }
-
   }
 
   document.getElementById(
     "modalEyebrow"
   ).textContent =
-
     "AI EXTRACTED · " +
-
     String(
       row.confidence ||
       "Unknown"
     ).toUpperCase() +
-
     " CONFIDENCE";
 
   document.getElementById(
@@ -3534,22 +3186,16 @@ function openExtracted(
   ).classList.add(
     "show"
   );
-
 }
 
-function editRequest(
-  id
-) {
-
+function editRequest(id) {
   var row =
     state.requests.find(
       function(item) {
-
         return (
           item.id ===
           id
         );
-
       }
     );
 
@@ -3577,23 +3223,17 @@ function editRequest(
   ).classList.add(
     "show"
   );
-
 }
 
 function closeModal() {
-
   document.getElementById(
     "modal"
   ).classList.remove(
     "show"
   );
-
 }
 
-async function saveRequest(
-  event
-) {
-
+async function saveRequest(event) {
   event.preventDefault();
 
   var id =
@@ -3602,7 +3242,6 @@ async function saveRequest(
     ).value;
 
   var body = {
-
     employee_id:
       document.getElementById(
         "employeeSelect"
@@ -3648,17 +3287,14 @@ async function saveRequest(
       document.getElementById(
         "sourceFilename"
       ).value
-
   };
 
   try {
-
     await api(
       id
         ? "/api/requests/" +
           id
         : "/api/requests",
-
       {
         method:
           id
@@ -3684,34 +3320,23 @@ async function saveRequest(
       currentView ===
       "upload"
     ) {
-
       showView(
         "dashboard"
       );
-
     } else {
-
       showView(
         currentView
       );
-
     }
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   }
-
 }
 
-async function deleteRequest(
-  id
-) {
-
+async function deleteRequest(id) {
   if (
     !confirm(
       "Delete this time-off request?"
@@ -3721,14 +3346,11 @@ async function deleteRequest(
   }
 
   try {
-
     await api(
       "/api/requests/" +
       id,
-
       {
-        method:
-          "DELETE"
+        method:"DELETE"
       }
     );
 
@@ -3737,20 +3359,15 @@ async function deleteRequest(
     );
 
     await reload();
-
   } catch (err) {
-
     showMessage(
       err.message,
       true
     );
-
   }
-
 }
 
 function renderCalendar() {
-
   var holder =
     document.getElementById(
       "calendar"
@@ -3781,9 +3398,7 @@ function renderCalendar() {
     );
 
   var start =
-    new Date(
-      first
-    );
+    new Date(first);
 
   start.setDate(
     1 -
@@ -3791,9 +3406,7 @@ function renderCalendar() {
   );
 
   var end =
-    new Date(
-      last
-    );
+    new Date(last);
 
   end.setDate(
     last.getDate() +
@@ -3810,15 +3423,11 @@ function renderCalendar() {
     "";
 
   var date =
-    new Date(
-      start
-    );
+    new Date(start);
 
   while (
-    date <=
-    end
+    date <= end
   ) {
-
     var dateString =
       localISO(
         date
@@ -3827,72 +3436,53 @@ function renderCalendar() {
     var rows =
       state.requests.filter(
         function(row) {
-
           return overlaps(
             row,
             dateString,
             dateString
           );
-
         }
       );
 
     html +=
       '<div class="day ' +
-
       (
         date.getMonth() !==
         month
           ? "other "
           : ""
       ) +
-
       (
         dateString ===
         p.today
           ? "current"
           : ""
       ) +
-
       '">' +
-
       '<div class="daynum">' +
-
       date.getDate() +
-
       "</div>";
 
     rows
-      .slice(
-        0,
-        4
-      )
+      .slice(0,4)
       .forEach(
         function(row) {
-
           html +=
             '<div class="event" title="' +
-
             escapeHtml(
               row.employee_name +
               " — " +
               row.request_type
             ) +
-
             '">' +
-
             escapeHtml(
               row.employee_name
             ) +
-
             " · " +
-
             escapeHtml(
               row.request_type
             ) +
-
             "</div>";
-
         }
       );
 
@@ -3900,7 +3490,6 @@ function renderCalendar() {
       rows.length >
       4
     ) {
-
       html +=
         '<div class="sub">+' +
         (
@@ -3908,150 +3497,111 @@ function renderCalendar() {
           4
         ) +
         " more</div>";
-
     }
 
     html +=
       "</div>";
 
     date.setDate(
-      date.getDate() +
-      1
+      date.getDate() + 1
     );
-
   }
 
   holder.innerHTML =
-
     '<div class="card">' +
 
-      '<div class="calbar">' +
+    '<div class="calbar">' +
 
-        "<div>" +
+    "<div>" +
+    '<div class="eyebrow">TEAM LEAVE</div>' +
+    "<h2>" +
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        month:"long",
+        year:"numeric"
+      }
+    ).format(first) +
+    "</h2>" +
+    "</div>" +
 
-          '<div class="eyebrow">' +
-          "TEAM LEAVE" +
-          "</div>" +
+    '<div class="calnav">' +
 
-          "<h2>" +
+    '<button class="btn" onclick="moveCalendar(-1)">←</button>' +
 
-          new Intl.DateTimeFormat(
-            "en-US",
-            {
-              month:
-                "long",
+    '<button class="btn" onclick="calendarCursor=new Date();renderCalendar()">Today</button>' +
 
-              year:
-                "numeric"
-            }
-          ).format(
-            first
-          ) +
+    '<button class="btn" onclick="moveCalendar(1)">→</button>' +
 
-          "</h2>" +
+    "</div>" +
 
-        "</div>" +
+    "</div>" +
 
-        '<div class="calnav">' +
+    '<div class="calendarWrap">' +
 
-          '<button class="btn" onclick="moveCalendar(-1)">' +
-          "←" +
-          "</button>" +
+    '<div class="calendar">' +
 
-          '<button class="btn" onclick="calendarCursor=new Date();renderCalendar()">' +
-          "Today" +
-          "</button>" +
+    [
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat"
+    ]
+      .map(
+        function(day) {
+          return (
+            '<div class="dow">' +
+            day +
+            "</div>"
+          );
+        }
+      )
+      .join("") +
 
-          '<button class="btn" onclick="moveCalendar(1)">' +
-          "→" +
-          "</button>" +
+    html +
 
-        "</div>" +
+    "</div>" +
 
-      "</div>" +
-
-      '<div class="calendarWrap">' +
-
-        '<div class="calendar">' +
-
-          [
-            "Sun",
-            "Mon",
-            "Tue",
-            "Wed",
-            "Thu",
-            "Fri",
-            "Sat"
-          ]
-            .map(
-              function(day) {
-
-                return (
-                  '<div class="dow">' +
-                  day +
-                  "</div>"
-                );
-
-              }
-            )
-            .join("") +
-
-          html +
-
-        "</div>" +
-
-      "</div>" +
+    "</div>" +
 
     "</div>" +
 
     '<div class="card">' +
 
-      '<div class="head">' +
+    '<div class="head">' +
 
-        "<div>" +
+    "<div>" +
+    '<div class="eyebrow">ALL REQUESTS</div>' +
+    "<h2>Manage requests</h2>" +
+    "</div>" +
 
-          '<div class="eyebrow">' +
-          "ALL REQUESTS" +
-          "</div>" +
+    '<button class="btn primary" onclick="newRequest()">＋ Add request</button>' +
 
-          "<h2>" +
-          "Manage requests" +
-          "</h2>" +
+    "</div>" +
 
-        "</div>" +
-
-        '<button class="btn primary" onclick="newRequest()">' +
-        "＋ Add request" +
-        "</button>" +
-
-      "</div>" +
-
-      requestTable(
-        state.requests
-      ) +
+    requestTable(
+      state.requests
+    ) +
 
     "</div>";
-
 }
 
-function moveCalendar(
-  amount
-) {
-
+function moveCalendar(amount) {
   calendarCursor =
     new Date(
       calendarCursor.getFullYear(),
       calendarCursor.getMonth() +
-        amount,
+      amount,
       1
     );
 
   renderCalendar();
-
 }
 
 </script>
 
 </body>
-
 </html>`;
